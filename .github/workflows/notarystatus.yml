@@ -1,0 +1,41 @@
+name: Check Notarization Status
+
+on:
+  workflow_dispatch:
+    inputs:
+      submission_id:
+        description: "Optional: a specific submission ID (blank = list recent history)"
+        required: false
+        default: ""
+
+jobs:
+  check:
+    runs-on: macos-14
+    env:
+      MACOS_NOTARY_KEY_ID:    ${{ secrets.MACOS_NOTARY_KEY_ID }}
+      MACOS_NOTARY_ISSUER_ID: ${{ secrets.MACOS_NOTARY_ISSUER_ID }}
+      MACOS_NOTARY_KEY_P8:    ${{ secrets.MACOS_NOTARY_KEY_P8 }}
+    steps:
+      - name: Write API key
+        run: |
+          echo "$MACOS_NOTARY_KEY_P8" | base64 --decode > "$RUNNER_TEMP/notary.p8"
+          grep -q "BEGIN PRIVATE KEY" "$RUNNER_TEMP/notary.p8" \
+            || { echo "::error::key did not decode to a PEM private key"; exit 1; }
+
+      - name: Check status
+        run: |
+          if [ -n "${{ github.event.inputs.submission_id }}" ]; then
+            xcrun notarytool info "${{ github.event.inputs.submission_id }}" \
+              --key "$RUNNER_TEMP/notary.p8" \
+              --key-id "$MACOS_NOTARY_KEY_ID" \
+              --issuer "$MACOS_NOTARY_ISSUER_ID"
+          else
+            xcrun notarytool history \
+              --key "$RUNNER_TEMP/notary.p8" \
+              --key-id "$MACOS_NOTARY_KEY_ID" \
+              --issuer "$MACOS_NOTARY_ISSUER_ID"
+          fi
+
+      - name: Clean up
+        if: always()
+        run: rm -f "$RUNNER_TEMP/notary.p8"

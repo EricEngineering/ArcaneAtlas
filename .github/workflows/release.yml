@@ -1,0 +1,371 @@
+name: Release
+
+# Builds the Windows installer + Linux tarball and publishes them as assets on a
+# GitHub Release. See CLAUDE.md → "Release automation (GitHub Actions)".
+#
+# Trigger EITHER by:
+#   1. pushing a version tag:   git tag v0.8.0 && git push origin v0.8.0
+#   2. Actions tab → Release → Run workflow (enter version, e.g. 0.8.0)
+#
+# Re-running for the same version is safe: the release job overwrites same-named
+# assets on the existing release (idempotent).
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release (no leading v), e.g. 0.8.0'
+        required: true
+
+# App-specific values — the ONLY block that changes when copying this workflow
+# to ArcaneEye / ArcaneAudio. Keep everything else identical across the 3 apps.
+env:
+  APP_NAME:     ArcaneAtlas
+  WIN_ASSET:    ArcaneAtlas-Setup-windows.exe
+  LINUX_ASSET:  ArcaneAtlas-linux.tar.gz
+  MAC_ASSET:    ArcaneAtlas-macos.dmg
+  # Static ffmpeg builds fetched at build time (git-ignored, never committed).
+  # Must include libvpx + libwebp for the transparency/transcode path.
+  # Windows: BtbN (GitHub-hosted, reliable; GPL build is fine — the app is AGPLv3).
+  FFMPEG_WIN:   https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip
+  FFMPEG_LINUX: https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz
+
+jobs:
+  # ───────────────────────────── Windows installer ─────────────────────────────
+  build-windows:
+    runs-on: windows-latest
+    # Microsoft Trusted Signing (a.k.a. Artifact Signing) secrets. Absent → the two
+    # signing steps skip and an UNSIGNED installer is produced. Present → the app exe
+    # and the installer are both Authenticode-signed via the Azure signing service.
+    # AZURE_* are read by the action's DefaultAzureCredential from the environment.
+    env:
+      AZURE_TENANT_ID:          ${{ secrets.AZURE_TENANT_ID }}
+      AZURE_CLIENT_ID:          ${{ secrets.AZURE_CLIENT_ID }}
+      AZURE_CLIENT_SECRET:      ${{ secrets.AZURE_CLIENT_SECRET }}
+      TRUSTED_SIGNING_ENDPOINT: ${{ secrets.TRUSTED_SIGNING_ENDPOINT }}
+      TRUSTED_SIGNING_ACCOUNT:  ${{ secrets.TRUSTED_SIGNING_ACCOUNT }}
+      TRUSTED_SIGNING_PROFILE:  ${{ secrets.TRUSTED_SIGNING_PROFILE }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'   # matches requirements.txt setup note
+
+      - name: Install Python deps
+        run: python -m pip install --upgrade pip -r requirements.txt
+
+      - name: Install Inno Setup
+        run: choco install innosetup -y --no-progress
+
+      - name: Fetch bundled ffmpeg (into resources/bin)
+        shell: pwsh
+        run: |
+          Invoke-WebRequest "$env:FFMPEG_WIN" -OutFile ffmpeg.zip
+          Expand-Archive -Force ffmpeg.zip -DestinationPath ffmpeg_dl
+          New-Item -ItemType Directory -Force -Path arcaneatlas/resources/bin | Out-Null
+          Copy-Item (Get-ChildItem -Recurse ffmpeg_dl -Filter ffmpeg.exe  | Select-Object -First 1).FullName arcaneatlas/resources/bin/
+          Copy-Item (Get-ChildItem -Recurse ffmpeg_dl -Filter ffprobe.exe | Select-Object -First 1).FullName arcaneatlas/resources/bin/
+
+      # NOTE: CI decomposes what build_installer.bat does locally (PyInstaller →
+      # Inno) so the code-signing steps can slot BETWEEN them — the app exe must be
+      # signed before Inno bundles it into the installer. Keep this in sync with
+      # build_installer.bat (same spec, same .iss, same version-from-__init__.py).
+      - name: Build app with PyInstaller
+        shell: cmd
+        run: pyinstaller --noconfirm arcaneatlas.spec
+
+      # Authenticate the Azure CLI as the service principal. The signing action's
+      # DefaultAzureCredential then uses this CLI session (AzureCliCredential) — the
+      # reliable path. --allow-no-subscriptions: the SP only has the signer role on
+      # the account, not subscription-level access.
+      - name: Azure CLI login for signing (skipped if unsigned)
+        if: env.AZURE_CLIENT_ID != ''
+        shell: pwsh
+        run: |
+          az login --service-principal `
+            --username $env:AZURE_CLIENT_ID `
+            --password $env:AZURE_CLIENT_SECRET `
+            --tenant $env:AZURE_TENANT_ID `
+            --allow-no-subscriptions
+
+      - name: Sign the app exe (skipped if unsigned)
+        if: env.AZURE_CLIENT_ID != ''
+        uses: azure/trusted-signing-action@v0
+        with:
+          endpoint: ${{ env.TRUSTED_SIGNING_ENDPOINT }}
+          trusted-signing-account-name: ${{ env.TRUSTED_SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ env.TRUSTED_SIGNING_PROFILE }}
+          # Sign only the launched executable — Windows Authenticode doesn't require
+          # every bundled dll/pyd signed (unlike macOS notarization), and this keeps
+          # signing-quota use to ~2 signatures per build (exe + installer).
+          files-folder: ${{ github.workspace }}\dist\ArcaneAtlas
+          files-folder-filter: exe
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+
+      - name: Build installer with Inno Setup
+        shell: cmd
+        run: |
+          if not exist installer mkdir installer
+          copy /Y arcaneatlas.iss installer\arcaneatlas.iss
+          set "VERSION="
+          for /f "tokens=2 delims== " %%v in ('findstr /b /c:"__version__" "arcaneatlas\__init__.py"') do set "VERSION=%%~v"
+          if not defined VERSION ( echo Could not read __version__ & exit /b 1 )
+          "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DMyAppVersion=%VERSION% installer\arcaneatlas.iss
+
+      - name: Sign the installer (skipped if unsigned)
+        if: env.AZURE_CLIENT_ID != ''
+        uses: azure/trusted-signing-action@v0
+        with:
+          endpoint: ${{ env.TRUSTED_SIGNING_ENDPOINT }}
+          trusted-signing-account-name: ${{ env.TRUSTED_SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ env.TRUSTED_SIGNING_PROFILE }}
+          files-folder: ${{ github.workspace }}\installer\output
+          files-folder-filter: exe
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+
+      - name: Collect installer under the contract name
+        shell: pwsh
+        run: |
+          $exe = Get-ChildItem installer/output/*.exe | Select-Object -First 1
+          if (-not $exe) { Write-Error "No installer produced in installer/output"; exit 1 }
+          Copy-Item $exe.FullName "$env:WIN_ASSET"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer
+          path: ${{ env.WIN_ASSET }}
+          if-no-files-found: error
+
+  # ───────────────────────────── Linux tarball ─────────────────────────────────
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Python deps
+        run: python -m pip install --upgrade pip -r requirements.txt
+
+      - name: Install Qt/xcb system libs (PySide6 imports these during the build)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libegl1 libgl1 libxkbcommon0 libglib2.0-0 \
+            libxcb-cursor0 libxcb-xinerama0 libxcb-icccm4 libxcb-image0 \
+            libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 libxcb-shape0
+
+      - name: Fetch bundled ffmpeg (into resources/bin)
+        run: |
+          curl -L "$FFMPEG_LINUX" -o ffmpeg.tar.xz
+          mkdir -p ffmpeg_dl && tar xf ffmpeg.tar.xz -C ffmpeg_dl --strip-components=1
+          mkdir -p arcaneatlas/resources/bin
+          cp ffmpeg_dl/ffmpeg ffmpeg_dl/ffprobe arcaneatlas/resources/bin/
+          chmod +x arcaneatlas/resources/bin/ffmpeg arcaneatlas/resources/bin/ffprobe
+
+      - name: Build with PyInstaller
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: pyinstaller --noconfirm arcaneatlas.spec
+
+      - name: Package tarball under the contract name
+        run: |
+          test -x "dist/${APP_NAME}/${APP_NAME}" || { echo "Build output missing"; exit 1; }
+          tar -czf "$LINUX_ASSET" -C dist "$APP_NAME"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-tarball
+          path: ${{ env.LINUX_ASSET }}
+          if-no-files-found: error
+
+  # ───────────────────────────── macOS .dmg ────────────────────────────────────
+  # UNIVERSAL2 (arm64 + x86_64) build on the macos-14 Apple Silicon runner — runs
+  # on both Apple Silicon and Intel Macs. Built entirely on the arm64 runner (the
+  # reliable one); the deprecated/starved Intel macos-13 runner is NOT used. The
+  # x86_64 slice is cross-produced via a universal2 Python + universal2 wheels +
+  # a fat ffmpeg + target_arch='universal2' in the spec.
+  build-macos:
+    runs-on: macos-14
+    # Signing/notarization secrets. Absent (e.g. before you add them, or in a
+    # fork) → the guarded steps skip and an UNSIGNED .dmg is produced. Present →
+    # a signed + notarized + stapled .dmg. Nothing else changes.
+    env:
+      MACOS_CERT_P12:         ${{ secrets.MACOS_CERT_P12 }}
+      MACOS_CERT_PASSWORD:    ${{ secrets.MACOS_CERT_PASSWORD }}
+      MACOS_SIGN_IDENTITY:    ${{ secrets.MACOS_SIGN_IDENTITY }}
+      MACOS_TEAM_ID:          ${{ secrets.MACOS_TEAM_ID }}
+      MACOS_NOTARY_KEY_ID:    ${{ secrets.MACOS_NOTARY_KEY_ID }}
+      MACOS_NOTARY_ISSUER_ID: ${{ secrets.MACOS_NOTARY_ISSUER_ID }}
+      MACOS_NOTARY_KEY_P8:    ${{ secrets.MACOS_NOTARY_KEY_P8 }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # Universal2 (arm64 + x86_64) build so the app runs on BOTH Apple Silicon and
+      # Intel Macs — built entirely on the arm64 runner; the deprecated Intel
+      # (macos-13) runner is NOT used. Needs a universal2 Python (python.org, not
+      # setup-python which is arch-specific), universal2 wheels (PySide6 ships them),
+      # a fat ffmpeg, and target_arch='universal2' in the spec.
+      - name: Install universal2 Python
+        run: |
+          PY=3.12.8
+          curl -fL "https://www.python.org/ftp/python/${PY}/python-${PY}-macos11.pkg" -o python.pkg
+          sudo installer -pkg python.pkg -target /
+          echo "/Library/Frameworks/Python.framework/Versions/3.12/bin" >> "$GITHUB_PATH"
+          # Confirm the interpreter is genuinely universal2 (the build's foundation).
+          lipo -archs "/Library/Frameworks/Python.framework/Versions/3.12/bin/python3.12"
+
+      - name: Install Python deps
+        run: python3.12 -m pip install --upgrade pip -r requirements.txt
+
+      - name: Fetch bundled ffmpeg (universal2 fat → resources/bin)
+        run: |
+          mkdir -p arcaneatlas/resources/bin
+          for tool in ffmpeg ffprobe; do
+            curl -fL "https://ffmpeg.martin-riedl.de/redirect/latest/macos/arm64/release/$tool.zip" -o "$tool-arm64.zip"
+            curl -fL "https://ffmpeg.martin-riedl.de/redirect/latest/macos/amd64/release/$tool.zip" -o "$tool-amd64.zip"
+            rm -rf a64 x64 && unzip -o "$tool-arm64.zip" -d a64 && unzip -o "$tool-amd64.zip" -d x64
+            lipo -create "a64/$tool" "x64/$tool" -output "arcaneatlas/resources/bin/$tool"
+            chmod +x "arcaneatlas/resources/bin/$tool"
+            echo "$tool archs:"; lipo -archs "arcaneatlas/resources/bin/$tool"
+          done
+          # Fail loudly if the build lacks the codecs the transcode path needs.
+          cfg="$(arcaneatlas/resources/bin/ffmpeg -hide_banner -version)"
+          echo "$cfg" | grep -q -- '--enable-libvpx'  || { echo "::error::bundled ffmpeg lacks libvpx";  exit 1; }
+          echo "$cfg" | grep -q -- '--enable-libwebp' || { echo "::error::bundled ffmpeg lacks libwebp"; exit 1; }
+
+      - name: Import signing certificate (skipped if unsigned)
+        if: env.MACOS_CERT_P12 != ''
+        run: |
+          KEYCHAIN="$RUNNER_TEMP/signing.keychain-db"
+          KEYCHAIN_PWD="$(openssl rand -base64 24)"
+          security create-keychain -p "$KEYCHAIN_PWD" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PWD" "$KEYCHAIN"
+          echo "$MACOS_CERT_P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security import "$RUNNER_TEMP/cert.p12" -k "$KEYCHAIN" \
+            -P "$MACOS_CERT_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: \
+            -s -k "$KEYCHAIN_PWD" "$KEYCHAIN" >/dev/null
+          # Make our keychain the default + searchable so codesign finds the identity.
+          security list-keychains -d user -s "$KEYCHAIN" \
+            $(security list-keychains -d user | sed s/\"//g)
+          security default-keychain -s "$KEYCHAIN"
+          rm -f "$RUNNER_TEMP/cert.p12"
+
+      - name: Sign bundled ffmpeg tools (skipped if unsigned)
+        if: env.MACOS_CERT_P12 != ''
+        run: |
+          # Every Mach-O inside the .app must be signed with a hardened runtime or
+          # notarization rejects the whole app. PyInstaller doesn't sign these
+          # Tree-bundled tools, so we sign them here — before the build bundles them.
+          # (Static builds have no nested dylibs; the find loop is a no-op then.)
+          find arcaneatlas/resources/bin -type f -name '*.dylib' -print0 |
+            while IFS= read -r -d '' lib; do
+              codesign --force --options runtime --timestamp \
+                --sign "$MACOS_SIGN_IDENTITY" "$lib"
+            done
+          codesign --force --options runtime --timestamp \
+            --entitlements packaging/entitlements.mac.plist \
+            --sign "$MACOS_SIGN_IDENTITY" \
+            arcaneatlas/resources/bin/ffmpeg arcaneatlas/resources/bin/ffprobe
+          codesign --verify --strict --verbose=2 arcaneatlas/resources/bin/ffmpeg
+          codesign --verify --strict --verbose=2 arcaneatlas/resources/bin/ffprobe
+
+      - name: Build with PyInstaller (universal2; signs during build when identity is set)
+        run: python3.12 -m PyInstaller --noconfirm arcaneatlas.spec
+
+      - name: Package .dmg under the contract name
+        run: |
+          test -d "dist/${APP_NAME}.app" || { echo "No .app bundle produced"; exit 1; }
+          mkdir -p dmg_stage
+          cp -R "dist/${APP_NAME}.app" dmg_stage/
+          ln -s /Applications dmg_stage/Applications
+          hdiutil create -volname "${APP_NAME}" -srcfolder dmg_stage \
+            -ov -format UDZO "${MAC_ASSET}"
+
+      - name: Sign, notarize & staple the .dmg (skipped if unsigned)
+        if: env.MACOS_CERT_P12 != ''
+        run: |
+          # Sign the dmg itself with the Developer ID identity.
+          codesign --force --timestamp --sign "$MACOS_SIGN_IDENTITY" "$MAC_ASSET"
+          # Submit to Apple's notary service and block until it returns a verdict.
+          echo "$MACOS_NOTARY_KEY_P8" | base64 --decode > "$RUNNER_TEMP/notary.p8"
+          # Guard: a malformed key makes notarytool fail with a cryptic "invalidAsn1".
+          if ! grep -q "BEGIN PRIVATE KEY" "$RUNNER_TEMP/notary.p8"; then
+            echo "::error::MACOS_NOTARY_KEY_P8 did not decode to a PEM private key. It must be the base64 of your App Store Connect AuthKey_*.p8 (run: base64 -w0 AuthKey_XXXX.p8)."
+            exit 1
+          fi
+          # --timeout caps the wait so an Apple-side backlog fails the step cleanly
+          # instead of hanging until the 6-hour job ceiling. Set generously (2h) to
+          # tolerate the slow first-notarization from a new account; once the account
+          # is warmed up, submissions return in minutes. The submission keeps
+          # processing on Apple's side regardless; re-running re-submits.
+          xcrun notarytool submit "$MAC_ASSET" \
+            --key "$RUNNER_TEMP/notary.p8" \
+            --key-id "$MACOS_NOTARY_KEY_ID" \
+            --issuer "$MACOS_NOTARY_ISSUER_ID" \
+            --wait --timeout 2h
+          rm -f "$RUNNER_TEMP/notary.p8"
+          # Attach the notarization ticket so it verifies offline.
+          xcrun stapler staple "$MAC_ASSET"
+
+      - name: Verify Gatekeeper would accept the app (skipped if unsigned)
+        if: env.MACOS_CERT_P12 != ''
+        run: |
+          # Assert in CI what would otherwise only surface on a user's Mac: a valid
+          # signature over the whole bundle, and Gatekeeper acceptance (signature +
+          # notarization). Non-zero exit here fails the build.
+          codesign --verify --deep --strict --verbose=2 "dist/${APP_NAME}.app"
+          spctl --assess --type exec --verbose=4 "dist/${APP_NAME}.app"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-dmg
+          path: ${{ env.MAC_ASSET }}
+          if-no-files-found: error
+
+  # ───────────────────────────── Publish the release ───────────────────────────
+  release:
+    needs: [build-windows, build-linux, build-macos]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write        # required to create/update the release + upload assets
+    steps:
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Resolve release tag
+        id: tag
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "tag=v${{ github.event.inputs.version }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Publish / update GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.tag }}
+          name: ${{ env.APP_NAME }} ${{ steps.tag.outputs.tag }}
+          draft: false          # must NOT be draft/prerelease — the website uses
+          prerelease: false     # releases/latest/download, which ignores both
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: |
+            artifacts/**/*.exe
+            artifacts/**/*.tar.gz
+            artifacts/**/*.dmg

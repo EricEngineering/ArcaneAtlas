@@ -1,0 +1,49 @@
+# Ignore virtual environment
+.venv/
+
+# PyInstaller build folders
+build/
+dist/
+installer/
+
+# Logs
+logs/
+
+# Python bytecode and cache
+__pycache__/
+*.pyc
+*.pyo
+
+# App Specific Test Files
+# Ignore everything in a folder
+arcaneatlas/assets/library/*
+arcaneatlas/assets/maps/*
+
+# But not these specific files/folders:
+!arcaneatlas/assets/library/Airship_day_gridless_sound.mp4
+!arcaneatlas/assets/maps/testing.json
+
+# Bundled ffmpeg binaries (added per build machine; too large to commit)
+arcaneatlas/resources/bin/ffmpeg*
+arcaneatlas/resources/bin/ffprobe*
+
+# Claude Code session/project data
+.claude/
+
+# OS cruft
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editor / IDE (drop a line if you'd rather commit workspace settings)
+.vscode/
+.idea/
+*.swp
+
+# Python packaging artifacts & alternate virtualenv names
+*.egg-info/
+.eggs/
+*.egg
+venv/
+env/
+ENV/
