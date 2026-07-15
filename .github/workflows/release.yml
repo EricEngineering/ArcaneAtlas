@@ -29,9 +29,11 @@ env:
   MAC_ASSET:    ArcaneAtlas-macos.dmg
   # Static ffmpeg builds fetched at build time (git-ignored, never committed).
   # Must include libvpx + libwebp for the transparency/transcode path.
-  # Windows: BtbN (GitHub-hosted, reliable; GPL build is fine — the app is AGPLv3).
+  # Windows + Linux: BtbN (GitHub-hosted, reliable; GPL build is fine — the app is AGPLv3).
+  # (Linux was johnvansickle.com but that single-maintainer host intermittently served
+  #  truncated/HTML responses to CI runners, breaking the tar extract — see git history.)
   FFMPEG_WIN:   https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip
-  FFMPEG_LINUX: https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz
+  FFMPEG_LINUX: https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-linux64-gpl.tar.xz
 
 jobs:
   # ───────────────────────────── Windows installer ─────────────────────────────
@@ -167,10 +169,10 @@ jobs:
 
       - name: Fetch bundled ffmpeg (into resources/bin)
         run: |
-          curl -L "$FFMPEG_LINUX" -o ffmpeg.tar.xz
+          curl -fL --retry 3 --retry-all-errors "$FFMPEG_LINUX" -o ffmpeg.tar.xz
           mkdir -p ffmpeg_dl && tar xf ffmpeg.tar.xz -C ffmpeg_dl --strip-components=1
           mkdir -p arcaneatlas/resources/bin
-          cp ffmpeg_dl/ffmpeg ffmpeg_dl/ffprobe arcaneatlas/resources/bin/
+          cp ffmpeg_dl/bin/ffmpeg ffmpeg_dl/bin/ffprobe arcaneatlas/resources/bin/
           chmod +x arcaneatlas/resources/bin/ffmpeg arcaneatlas/resources/bin/ffprobe
 
       - name: Build with PyInstaller

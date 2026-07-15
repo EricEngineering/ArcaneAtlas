@@ -2,6 +2,9 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Working agreement
+- **Never `git commit` or `git push`.** Make changes in the working tree only and leave all committing/pushing to the user, even after a task is complete and verified — do not commit unless the user explicitly asks in that moment.
+
 ## What this is
 
 ArcaneAtlas ("Arcane Atlas (LCDnD)") is a PySide6 (Qt for Python) desktop app — a digital battle-map / virtual tabletop for in-person tabletop RPGs. The GM lays out maps and assets on a control window, and a separate **Player Window** mirrors a chosen region of that map onto a second screen/TV the players see. Supports static images, animated video maps (`.mp4`/`.webm`), and fog of war with reveal/hide tools.
