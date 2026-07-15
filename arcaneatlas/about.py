@@ -35,7 +35,7 @@ from PySide6.QtWidgets import (QApplication, QDialog, QWidget, QLabel, QPushButt
 
 # --- shared links / copy (identical across all three apps) -------------------
 WEBSITE_URL = "https://arcanetools.org"
-PATREON_URL = "https://www.patreon.com/EricEngineering"
+PATREON_URL = "https://www.patreon.com/c/EricEngineering/membership"
 GITHUB_URL = "https://github.com/EricEngineering"
 YOUTUBE_URL = "https://youtube.com/@EricEngineering"
 DISCORD_URL = "https://discord.gg/U7KCaJ9Pkb"

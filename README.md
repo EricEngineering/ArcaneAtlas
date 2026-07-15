@@ -18,7 +18,7 @@ The software is free, forever — open-source (AGPLv3), no paywall, no account, 
 upsell. A few things still cost money, though: code-signing certificates run about
 $250 a year (Apple's Developer Program to notarize the macOS builds, and Microsoft
 Trusted Signing for Windows), and domain names and hosting are another $50. If these
-tools are useful to you, your support on [Patreon](https://www.patreon.com/EricEngineering)
+tools are useful to you, your support on [Patreon](https://www.patreon.com/c/EricEngineering/membership)
 helps cover the cost and keeps development going. Thank you!
 
 ## Building
