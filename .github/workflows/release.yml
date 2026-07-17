@@ -284,6 +284,22 @@ jobs:
           codesign --verify --strict --verbose=2 arcaneatlas/resources/bin/ffmpeg
           codesign --verify --strict --verbose=2 arcaneatlas/resources/bin/ffprobe
 
+      # Generate the macOS app icon (.icns) from the 1024×1024 icon.png using the
+      # runner's native sips + iconutil (no committed binary, same "produce it in
+      # CI" approach as ffmpeg). The spec's BUNDLE auto-picks up resources/icon.icns
+      # when present — without it the .app falls back to the generic Python icon.
+      - name: Generate app icon (.icns)
+        run: |
+          SRC=arcaneatlas/resources/icon.png
+          ICONSET="$RUNNER_TEMP/ArcaneAtlas.iconset"
+          rm -rf "$ICONSET" && mkdir -p "$ICONSET"
+          for size in 16 32 128 256 512; do
+            sips -z "$size" "$size"           "$SRC" --out "$ICONSET/icon_${size}x${size}.png"
+            sips -z "$((size*2))" "$((size*2))" "$SRC" --out "$ICONSET/icon_${size}x${size}@2x.png"
+          done
+          iconutil -c icns "$ICONSET" -o arcaneatlas/resources/icon.icns
+          ls -l arcaneatlas/resources/icon.icns
+
       - name: Build with PyInstaller (universal2; signs during build when identity is set)
         run: python3.12 -m PyInstaller --noconfirm arcaneatlas.spec
 

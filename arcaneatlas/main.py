@@ -34,7 +34,7 @@ from PySide6.QtWidgets import (QApplication, QMainWindow, QGraphicsItem, QMenu,
     QCheckBox, QGraphicsRectItem, QRadioButton, QDialogButtonBox,
     QHBoxLayout, QProgressBar, QProgressDialog, QMessageBox, QToolButton, QSlider,
     QButtonGroup, QSplitter, QTreeView, QFileSystemModel, QInputDialog, QTabWidget,
-    QFileIconProvider, QStyle, QProxyStyle, QStyleOptionGraphicsItem, QStackedWidget,
+    QFileIconProvider, QStyle, QProxyStyle, QStyleFactory, QStyleOptionGraphicsItem, QStackedWidget,
     QAbstractItemView, QFileDialog, QTextBrowser, QPlainTextEdit, QComboBox,
     QSpinBox, QGroupBox)
 from arcaneatlas.colorbutton import ColorPickerButton
@@ -611,11 +611,16 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         # Make all three sliders click-to-jump (left-click the track moves the
         # handle to that point, then drags). One shared proxy style, kept on self
         # so it isn't garbage-collected while the sliders reference it.
-        # NOTE: construct with NO base style — QProxyStyle *takes ownership* of any
-        # base you pass, so handing it the shared application style (self.style())
-        # double-frees it at teardown → segfault. Null base uses the app style
-        # without owning it.
-        self._jump_slider_style = JumpSliderStyle()
+        # Base it on a *fresh* Fusion style: a QProxyStyle with a NULL base wraps
+        # the platform's *native desktop* style (QStyleFactory.create of the desktop
+        # style key) — NOT the Fusion style set_theme() applied via setStyle("Fusion").
+        # On Linux that key is ~Fusion so it looked fine, but on macOS it's "macintosh"
+        # (Aqua), so these three sliders rendered native — oversized and ignoring the
+        # arcana purple Highlight from the palette. Pass an explicit new Fusion instance
+        # instead. QProxyStyle *takes ownership* of the base, so this must be a fresh
+        # instance we don't otherwise hold — do NOT pass the shared app style
+        # (self.style()), which QApplication also owns → double-free at teardown → segfault.
+        self._jump_slider_style = JumpSliderStyle(QStyleFactory.create("Fusion"))
         for _s in (self.brush_slider, self.gmfog_slider, self.zoom_slider):
             _s.setStyle(self._jump_slider_style)
 
