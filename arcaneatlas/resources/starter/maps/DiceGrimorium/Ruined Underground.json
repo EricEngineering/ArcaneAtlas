@@ -1,0 +1,56 @@
+{
+  "items": [
+    {
+      "type": "image",
+      "asset": "backgrounds/Ruined-Underground-Temple-Gridded-35x35-MapPublic.jpg",
+      "pos": [
+        -1296.238095238095,
+        -1223.015873015873
+      ],
+      "size": [
+        2519,
+        2519
+      ],
+      "rot": 0.0,
+      "z": 0.0,
+      "visibleToPlayer": true
+    },
+    {
+      "type": "text",
+      "text": "Map courtesy of:\nDice Grimorium - https://dicegrimorium.com",
+      "pos": [
+        -1295.7142857142858,
+        -1330.0000000000002
+      ],
+      "width": 547.3809523809524,
+      "rot": 0.0,
+      "z": 1000000.0,
+      "visibleToPlayer": true,
+      "fontFamily": "Sans Serif",
+      "fontSize": 18.0,
+      "textColor": "#ffffffff",
+      "bgColor": "#a0000000",
+      "borderColor": "#ffffffff",
+      "borderWidth": 2.0,
+      "bold": false,
+      "italic": false,
+      "align": 1
+    }
+  ],
+  "fogEnabled": false,
+  "gridEnabled": true,
+  "gridAbove": false,
+  "gridColor": [
+    128,
+    128,
+    128,
+    160
+  ],
+  "bgColor": [
+    20,
+    22,
+    24,
+    255
+  ],
+  "fogReveal": []
+}

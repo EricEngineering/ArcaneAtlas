@@ -1,0 +1,56 @@
+{
+  "items": [
+    {
+      "type": "image",
+      "asset": "backgrounds/ForestVillagePublic.jpg",
+      "pos": [
+        -864.6666666666667,
+        -1223.0000000000005
+      ],
+      "size": [
+        1584,
+        2377
+      ],
+      "rot": 0.0,
+      "z": 0.0,
+      "visibleToPlayer": true
+    },
+    {
+      "type": "text",
+      "text": "Map courtesy of:\nDice Grimorium - https://dicegrimorium.com",
+      "pos": [
+        -863.6904761904761,
+        -1328.0
+      ],
+      "width": 547.3809523809524,
+      "rot": 0.0,
+      "z": 1000000.0,
+      "visibleToPlayer": true,
+      "fontFamily": "Sans Serif",
+      "fontSize": 18.0,
+      "textColor": "#ffffffff",
+      "bgColor": "#a0000000",
+      "borderColor": "#ffffffff",
+      "borderWidth": 2.0,
+      "bold": false,
+      "italic": false,
+      "align": 1
+    }
+  ],
+  "fogEnabled": false,
+  "gridEnabled": true,
+  "gridAbove": false,
+  "gridColor": [
+    128,
+    128,
+    128,
+    160
+  ],
+  "bgColor": [
+    20,
+    22,
+    24,
+    255
+  ],
+  "fogReveal": []
+}

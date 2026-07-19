@@ -1,0 +1,56 @@
+{
+  "items": [
+    {
+      "type": "video",
+      "asset": "backgrounds/Forest_Camp_night_gridless.mp4",
+      "pos": [
+        -1077.8571428571427,
+        -720.1428571428569
+      ],
+      "size": [
+        2513.5,
+        1413.6711827169534
+      ],
+      "rot": 0.0,
+      "z": 0.0,
+      "visibleToPlayer": true
+    },
+    {
+      "type": "text",
+      "text": "Map courtesy of:\nDynamic Dungeons - https://dynamicdungeons.com",
+      "pos": [
+        -1079.0476190476188,
+        -826.6666666666666
+      ],
+      "width": 631.4285714285714,
+      "rot": 0.0,
+      "z": 1000000.0,
+      "visibleToPlayer": true,
+      "fontFamily": "Sans Serif",
+      "fontSize": 18.0,
+      "textColor": "#ffffffff",
+      "bgColor": "#a0000000",
+      "borderColor": "#ffffffff",
+      "borderWidth": 2.0,
+      "bold": false,
+      "italic": false,
+      "align": 1
+    }
+  ],
+  "fogEnabled": false,
+  "gridEnabled": true,
+  "gridAbove": false,
+  "gridColor": [
+    128,
+    128,
+    128,
+    160
+  ],
+  "bgColor": [
+    20,
+    22,
+    24,
+    255
+  ],
+  "fogReveal": []
+}

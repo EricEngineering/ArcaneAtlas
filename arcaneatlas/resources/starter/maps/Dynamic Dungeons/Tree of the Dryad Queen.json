@@ -1,0 +1,56 @@
+{
+  "items": [
+    {
+      "type": "video",
+      "asset": "backgrounds/TREE OF THE DRYAD QUEEN gridless.mp4",
+      "pos": [
+        -1008.5,
+        -719.5
+      ],
+      "size": [
+        2513.1956380208335,
+        1413.5
+      ],
+      "rot": 0.0,
+      "z": 0.0,
+      "visibleToPlayer": true
+    },
+    {
+      "type": "text",
+      "text": "Map courtesy of:\nDynamic Dungeons - https://dynamicdungeons.com",
+      "pos": [
+        -1005.7142857142857,
+        -825.0714285714287
+      ],
+      "width": 631.4285714285714,
+      "rot": 0.0,
+      "z": 1000000.0,
+      "visibleToPlayer": true,
+      "fontFamily": "Sans Serif",
+      "fontSize": 18.0,
+      "textColor": "#ffffffff",
+      "bgColor": "#a0000000",
+      "borderColor": "#ffffffff",
+      "borderWidth": 2.0,
+      "bold": false,
+      "italic": false,
+      "align": 1
+    }
+  ],
+  "fogEnabled": false,
+  "gridEnabled": true,
+  "gridAbove": false,
+  "gridColor": [
+    128,
+    128,
+    128,
+    160
+  ],
+  "bgColor": [
+    20,
+    22,
+    24,
+    255
+  ],
+  "fogReveal": []
+}

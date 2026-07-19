@@ -1,0 +1,56 @@
+{
+  "items": [
+    {
+      "type": "video",
+      "asset": "backgrounds/BROKEN BRIDGE BY THE FALLS day gridless.mp4",
+      "pos": [
+        -1222.8690476190477,
+        -1085.0476190476188
+      ],
+      "size": [
+        2518.668678977273,
+        1416.5782097799672
+      ],
+      "rot": 0.0,
+      "z": 0.0,
+      "visibleToPlayer": true
+    },
+    {
+      "type": "text",
+      "text": "Map courtesy of:\nDynamic Dungeons - https://dynamicdungeons.com",
+      "pos": [
+        -1223.4920634920636,
+        -1184.4444444444443
+      ],
+      "width": 631.4285714285714,
+      "rot": 0.0,
+      "z": 1000000.0,
+      "visibleToPlayer": true,
+      "fontFamily": "Sans Serif",
+      "fontSize": 18.0,
+      "textColor": "#ffffffff",
+      "bgColor": "#a0000000",
+      "borderColor": "#ffffffff",
+      "borderWidth": 2.0,
+      "bold": false,
+      "italic": false,
+      "align": 1
+    }
+  ],
+  "fogEnabled": false,
+  "gridEnabled": true,
+  "gridAbove": false,
+  "gridColor": [
+    128,
+    128,
+    128,
+    160
+  ],
+  "bgColor": [
+    20,
+    22,
+    24,
+    255
+  ],
+  "fogReveal": []
+}
