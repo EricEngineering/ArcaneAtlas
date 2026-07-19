@@ -1,0 +1,16 @@
+# Extra dependencies for the `remoteplay` fork's WebRTC pipeline (Phase 2+).
+# These are ON TOP OF requirements.txt (base app). Kept separate so `main` and
+# the base app never pull the aiortc/PyAV native stack.
+#
+# Setup (in the remoteplay fork's venv, Python 3.13):
+#     uv pip install -r requirements.txt -r requirements-remoteplay.txt
+#
+# Pinned to the exact versions the pipeline was verified against on Python 3.13.14
+# (aiortc + PyAV import + VP8/H.264 encode confirmed). aiohttp is the signaling
+# WebSocket client. When this moves into arcaneatlas/webrtc.py, these graduate
+# into requirements.txt and the PyInstaller spec (collect PyAV's bundled ffmpeg).
+
+aiortc==1.15.0      # WebRTC (RTCPeerConnection, VideoStreamTrack)
+av==17.1.0          # PyAV — aiortc's codec backend (bundles ffmpeg: libvpx, libx264)
+aiohttp==3.14.1     # signaling WebSocket client
+numpy==2.5.1        # frame buffers (already a transitive dep of av tooling)
