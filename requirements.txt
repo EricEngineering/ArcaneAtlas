@@ -1,12 +1,13 @@
 # ArcaneAtlas Python dependencies
-# Setup (Windows):  py -3.12 -m venv .venv && .venv\Scripts\python -m pip install -r requirements.txt
-# Setup (Linux):    python3 -m venv .venv && .venv/bin/python -m pip install -r requirements.txt
+# Setup (Windows):  py -3.13 -m venv .venv && .venv\Scripts\python -m pip install -r requirements.txt
+# Setup (Linux):    uv venv --python 3.13 --seed && uv pip install -r requirements.txt   # uv reads .python-version (3.13)
 #
 # Runtime: PySide6 (Qt for Python; pulls in shiboken6, QtMultimedia, etc.)
 #          qrcode  (pure-Python; used only for the LAN web-sharing join QR — the
 #                   matrix is rendered to a QPixmap by hand, so no Pillow needed)
 # Build:   pyinstaller (only needed to produce the standalone app/installer)
 
-PySide6
+PySide6==6.11.1     # Qt for Python — pinned for a reproducible, known-good binding (see CLAUDE.md runtime note)
+shiboken6==6.11.1   # PySide6's binding layer; must match PySide6 exactly
 qrcode
 pyinstaller
