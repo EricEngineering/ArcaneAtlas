@@ -116,7 +116,7 @@ class WebRtcSender:
                 self.pcs.pop(viewer_id, None)
 
         await pc.setLocalDescription(await pc.createOffer())   # gathers ICE fully
-        await self._send({"t": "signal", "to": viewer_id,
+        await self._send({"type": "signal", "to": viewer_id,
                           "data": {"kind": "offer", "sdp": pc.localDescription.sdp}})
         print(f"[sender] offered to viewer {viewer_id}")
 
@@ -129,14 +129,14 @@ class WebRtcSender:
         async with aiohttp.ClientSession() as session:
             async with session.ws_connect(self.server_url) as ws:
                 self.ws = ws
-                await self._send({"t": "join", "room": self.room, "role": "gm"})
+                await self._send({"type": "join", "room": self.room, "role": "gm"})
                 print(f"[sender] joined room '{self.room}' on {self.server_url} as GM")
                 try:
                     async for msg in ws:
                         if msg.type != aiohttp.WSMsgType.TEXT:
                             continue
                         m = json.loads(msg.data)
-                        t = m.get("t")
+                        t = m.get("type")
                         if t == "welcome":
                             for p in m.get("peers", []):
                                 if p["role"] == "viewer":

@@ -261,6 +261,18 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         self.web_port_custom = False       # persisted; use a user-chosen port?
         self.web_port = DEFAULT_WEB_PORT   # persisted; the custom base port
 
+        # Remote Play (WebRTC video of the Player View → an ArcaneServer relay →
+        # remote browsers). See arcaneatlas/webrtc.py. The worker lives here so
+        # streaming survives closing the dialog (like the LAN web_server).
+        self.rtc_worker = None                     # created lazily on first connect
+        self.remote_relay_addr = "localhost:8080"  # persisted; relay host:port
+        self.remote_room_id = "TEST"               # persisted; session/room code
+        self._rtc_timer = QTimer(self)             # GUI-thread Player-View grab pump
+        self._rtc_timer.setInterval(80)            # ~12 fps (matches webrtc VIDEO_FPS;
+        self._rtc_timer.timeout.connect(self._rtc_grab_and_push)  # low fps → sharper frames
+        self._rtc_disabled_arr = None              # cached "Player View disabled" frame
+        self._rtc_last_state = None                # last token-state JSON sent (skip if unchanged)
+
         # ── "File" toolbutton menu ──
         file_menu = QMenu(self)
         # New Map creates a default-named map in the Maps folder and drops the
@@ -273,6 +285,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             "Save Map w/ Player Tokens", self.save_with_player_tokens)
         file_menu.addSeparator()
         file_menu.addAction("Open Maps && Assets Folder", self.open_maps_assets_folder)
+        file_menu.addAction("Remote Play…", self._open_remote_play_dialog)
         file_menu.addSeparator()
         file_menu.addAction("Settings", self._open_settings_dialog)
         file_menu.addAction("Instructions", self._open_instructions_dialog)
@@ -2684,6 +2697,152 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         from arcaneatlas.webserver import WebShareDialog
         WebShareDialog(self).exec()
 
+    # ── Remote Play (WebRTC of the Player View via an ArcaneServer relay) ─────
+    def _remote_play_active(self):
+        return self.rtc_worker is not None and self.rtc_worker.active()
+
+    def _ensure_rtc_worker(self):
+        """Lazily build the RtcWorker (imports the optional aiortc/av stack).
+        Returns the worker, or None if the deps aren't installed (with a hint)."""
+        if self.rtc_worker is not None:
+            return self.rtc_worker
+        try:
+            from arcaneatlas.webrtc import RtcWorker
+        except ImportError as e:
+            QMessageBox.warning(
+                self, "Remote Play unavailable",
+                "Remote Play needs the WebRTC dependencies:\n\n"
+                "    uv pip install -r requirements-remoteplay.txt\n\n"
+                f"({e})")
+            return None
+        self.rtc_worker = RtcWorker()
+        # MainWindow always stops the grab pump when the link drops (the dialog
+        # may be closed); the dialog wires its own handlers on top for the UI.
+        self.rtc_worker.signals.disconnected.connect(self._on_rtc_disconnected)
+        # A viewer's token drag → the single mutation chokepoint (GUI thread).
+        self.rtc_worker.signals.move_received.connect(self.apply_token_move)
+        # Roster change → re-send full token state so new viewers get primed.
+        self.rtc_worker.signals.viewers.connect(self._on_rtc_viewers)
+        return self.rtc_worker
+
+    def _start_remote_play(self, addr, room):
+        """Dial the relay and start streaming the Player View. True if started."""
+        worker = self._ensure_rtc_worker()
+        if worker is None:
+            return False
+        self.remote_relay_addr = (addr or "").strip()
+        self.remote_room_id = (room or "").strip()
+        from arcaneatlas.webrtc import parse_address
+        ws_url, _ = parse_address(self.remote_relay_addr)
+        worker.start(ws_url, self.remote_room_id)
+        self._rtc_timer.start()
+        self.statusBar().showMessage(
+            f"Remote Play: connecting to {self.remote_relay_addr}…", 0)
+        return True
+
+    def _stop_remote_play(self):
+        if self.rtc_worker is not None:
+            self.rtc_worker.stop()
+        if self._rtc_timer.isActive():
+            self._rtc_timer.stop()
+        self._rtc_last_state = None
+        self.statusBar().clearMessage()
+
+    def _on_rtc_viewers(self, n):
+        # a viewer joined/left → force a full state resend next tick (prime joiners)
+        self._rtc_last_state = None
+
+    def _on_rtc_disconnected(self):
+        if self._rtc_timer.isActive():
+            self._rtc_timer.stop()
+        self.statusBar().clearMessage()
+
+    def _rtc_grab_and_push(self):
+        """GUI thread: grab the Player View and hand it to the WebRTC sender.
+        When the Player View is disabled (window hidden), stream a placeholder
+        instead — the Player View is the players' whole window onto the map."""
+        worker = self.rtc_worker
+        if worker is None or not worker.active():
+            return
+        # Token state to viewers (broadcast only when it changed).
+        self._rtc_push_state()
+        # Video of the Player View (or a placeholder when it's disabled).
+        pw = getattr(self, "player_window", None)
+        if not pw or not pw.isVisible():
+            worker.push_frame(self._rtc_disabled_frame())
+            return
+        from arcaneatlas.webrtc import qimage_to_ndarray
+        try:
+            img = pw.canvas_view.viewport().grab().toImage()
+            worker.push_frame(qimage_to_ndarray(img))
+        except Exception as e:            # a grab hiccup must never kill the timer
+            log.debug("Remote Play frame grab failed: %s", e)
+
+    def _rtc_token_state(self):
+        """Token-state payload for remote viewers: controllable, player-visible
+        tokens as normalized viewport rects. Same shape/semantics as the LAN
+        `_state_json`, computed here for the WebRTC path (GUI thread)."""
+        pw = getattr(self, "player_window", None)
+        cv = getattr(pw, "canvas_view", None) if (pw and pw.isVisible()) else None
+        tokens = []
+        if cv is not None:
+            vp = cv.viewport()
+            vpw = vp.width() or 1
+            vph = vp.height() or 1
+            for it in self._map_items():
+                if not (getattr(it, "is_token", False)
+                        and getattr(it, "player_controllable", False)
+                        and getattr(it, "visible_to_player", True)):
+                    continue
+                r = it.sceneBoundingRect()
+                tl = cv.mapFromScene(r.topLeft())
+                br = cv.mapFromScene(r.bottomRight())
+                tokens.append({
+                    "id": self._token_id(it),
+                    "nx": tl.x() / vpw, "ny": tl.y() / vph,
+                    "nw": (br.x() - tl.x()) / vpw, "nh": (br.y() - tl.y()) / vph,
+                })
+        return {"type": "state", "view": cv is not None, "tokens": tokens}
+
+    def _rtc_push_state(self):
+        """Broadcast token state to viewers, but only when it changed (dirty-state
+        skipping — the state analog of dirty-frame skipping)."""
+        worker = self.rtc_worker
+        if worker is None or not worker.active():
+            return
+        payload = self._rtc_token_state()
+        js = json.dumps(payload, sort_keys=True)
+        if js != self._rtc_last_state:
+            self._rtc_last_state = js
+            worker.send_json(payload)
+
+    def _rtc_disabled_frame(self):
+        """Cached placeholder shown to remote viewers while the Player View is off,
+        so they see a clear message instead of a frozen/black frame."""
+        if self._rtc_disabled_arr is None:
+            from PySide6.QtGui import QImage, QPainter, QColor, QFont
+            from arcaneatlas.webrtc import qimage_to_ndarray
+            img = QImage(1280, 720, QImage.Format.Format_RGB888)
+            img.fill(QColor("#14141c"))
+            p = QPainter(img)
+            p.setPen(QColor("#c8c8d4"))
+            font = QFont()
+            font.setPointSize(34)
+            font.setBold(True)
+            p.setFont(font)
+            p.drawText(img.rect(), Qt.AlignmentFlag.AlignCenter,
+                       "GM has the Player View disabled")
+            p.end()
+            self._rtc_disabled_arr = qimage_to_ndarray(img)
+        return self._rtc_disabled_arr
+
+    def _open_remote_play_dialog(self):
+        # Ensure the worker exists first (so the dialog can wire to its signals,
+        # and so missing deps surface as a hint rather than a broken dialog).
+        if self._ensure_rtc_worker() is None:
+            return
+        RemotePlayDialog(self).exec()
+
     # ── File-menu dialogs: Settings / Instructions / About ───────────────────
     def _open_settings_dialog(self):
         """A small table of app settings. Toggles apply immediately (and persist
@@ -4337,6 +4496,13 @@ class MainWindow(QMainWindow, Ui_MainWindow):
             wp = data.get("webPort")
             if isinstance(wp, int) and 1024 <= wp <= 65534:
                 self.web_port = wp
+            # Remote Play relay address + room id
+            addr = data.get("remoteRelayAddr")
+            if isinstance(addr, str) and addr.strip():
+                self.remote_relay_addr = addr.strip()
+            rid = data.get("remoteRoomId")
+            if isinstance(rid, str) and rid.strip():
+                self.remote_room_id = rid.strip()
         except (OSError, ValueError):
             # no file or invalid JSON → keep defaults
             pass
@@ -4345,6 +4511,9 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         # Stop LAN web sharing (close sockets) before teardown.
         if getattr(self, "web_server", None) is not None:
             self.web_server.stop()
+        # Stop Remote Play (join the WebRTC worker thread) before teardown.
+        if getattr(self, "rtc_worker", None) is not None:
+            self._stop_remote_play()
         # save current dimensions
         try:
             with open(SETTINGS_FILE, 'w') as f:
@@ -4363,6 +4532,8 @@ class MainWindow(QMainWindow, Ui_MainWindow):
                     "lockOnOpen":           self.lock_on_open,
                     "webPortCustom":        self.web_port_custom,
                     "webPort":              self.web_port,
+                    "remoteRelayAddr":      self.remote_relay_addr,
+                    "remoteRoomId":         self.remote_room_id,
                 }, f, indent=2)
         except OSError as e:
             log.warning("Failed to save settings: %s", e)
@@ -4579,6 +4750,116 @@ class TextBoxEditDialog(QDialog):
 
     def _preview(self, *_):
         self.apply_to(self._item)
+
+
+class RemotePlayDialog(QDialog):
+    """Control surface for Remote Play: enter the relay address + room id, connect,
+    and see live status. The RtcWorker lives on MainWindow, so streaming continues
+    if this dialog is closed. Green dot = the signaling link to the relay is up
+    (you're registered and serving viewers)."""
+
+    def __init__(self, mw):
+        super().__init__(mw)
+        self.mw = mw
+        self.setWindowTitle("Remote Play")
+        self.setMinimumWidth(440)
+
+        self.addr_edit = QLineEdit(mw.remote_relay_addr)
+        self.addr_edit.setPlaceholderText("host:port   (e.g. localhost:8080)")
+        self.room_edit = QLineEdit(mw.remote_room_id)
+        self.room_edit.setPlaceholderText("room id")
+        form = QFormLayout()
+        form.addRow("Server address:", self.addr_edit)
+        form.addRow("Room ID:", self.room_edit)
+
+        self.dot = QLabel("●")          # ●
+        self.status_lbl = QLabel("Not connected")
+        self.viewers_lbl = QLabel("")
+        status_row = QHBoxLayout()
+        status_row.addWidget(self.dot)
+        status_row.addWidget(self.status_lbl)
+        status_row.addStretch()
+        status_row.addWidget(self.viewers_lbl)
+
+        self.join_lbl = QLabel("")
+        self.join_lbl.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        self.join_lbl.setStyleSheet("color:#88a;")
+        self.join_lbl.setWordWrap(True)
+
+        self.connect_btn = QPushButton("Connect")
+        self.connect_btn.clicked.connect(self._toggle)
+        close_btn = QPushButton("Close")
+        close_btn.clicked.connect(self.accept)
+        btn_row = QHBoxLayout()
+        btn_row.addStretch()
+        btn_row.addWidget(self.connect_btn)
+        btn_row.addWidget(close_btn)
+
+        lay = QVBoxLayout(self)
+        lay.addLayout(form)
+        lay.addLayout(status_row)
+        lay.addWidget(self.join_lbl)
+        lay.addLayout(btn_row)
+
+        w = mw.rtc_worker
+        if w is not None:                    # wire live status (auto-disconnects on close)
+            w.signals.connected.connect(self._on_connected)
+            w.signals.disconnected.connect(self._on_disconnected)
+            w.signals.error.connect(self._on_error)
+            w.signals.viewers.connect(self._on_viewers)
+
+        self.addr_edit.textChanged.connect(self._update_join)
+        self.room_edit.textChanged.connect(self._update_join)
+        self._refresh()
+        self._update_join()
+
+    def _set_dot(self, color):
+        self.dot.setStyleSheet(f"color:{color}; font-size:15px;")
+
+    def _refresh(self):
+        active = self.mw._remote_play_active()
+        self._set_dot("#33cc55" if active else "#888")
+        self.status_lbl.setText("Connected" if active else "Not connected")
+        self.connect_btn.setText("Disconnect" if active else "Connect")
+        self.addr_edit.setEnabled(not active)
+        self.room_edit.setEnabled(not active)
+
+    def _update_join(self):
+        try:
+            from arcaneatlas.webrtc import parse_address
+            _ws, http = parse_address(self.addr_edit.text())
+            room = self.room_edit.text().strip()
+            self.join_lbl.setText("Players open:  " + (f"{http}?room={room}" if room else http))
+        except Exception:
+            self.join_lbl.setText("")
+
+    def _toggle(self):
+        if self.mw._remote_play_active():
+            self.mw._stop_remote_play()
+            self._refresh()
+            self.viewers_lbl.setText("")
+        elif self.mw._start_remote_play(self.addr_edit.text(), self.room_edit.text()):
+            self._set_dot("#e0a020")
+            self.status_lbl.setText("Connecting…")
+            self.connect_btn.setText("Disconnect")
+            self.addr_edit.setEnabled(False)
+            self.room_edit.setEnabled(False)
+
+    def _on_connected(self):
+        self._set_dot("#33cc55")
+        self.status_lbl.setText("Connected")
+        self.connect_btn.setText("Disconnect")
+
+    def _on_disconnected(self):
+        self._refresh()
+        self.viewers_lbl.setText("")
+
+    def _on_error(self, msg):
+        self._set_dot("#dd4444")
+        self.status_lbl.setText(f"Error: {msg}")
+
+    def _on_viewers(self, n):
+        self.viewers_lbl.setText(f"{n} viewer(s)" if n else "")
 
 
 class Canvas(QGraphicsView):
