@@ -244,7 +244,7 @@ class MainWindow(QMainWindow, Ui_MainWindow):
         super().__init__()
         self.setupUi(self)
 
-        self.setWindowTitle("Arcane Atlas (LCDnD)")
+        self.setWindowTitle("Arcane Atlas")
         self.setWindowIcon(QIcon(ICON_PATH))
         self.resize(1440, 810)  # Set initial window size to 800x800
 

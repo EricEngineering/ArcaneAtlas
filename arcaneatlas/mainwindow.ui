@@ -313,7 +313,7 @@
           </rect>
          </property>
          <property name="text">
-          <string>File ...</string>
+          <string>File</string>
          </property>
         </widget>
         <widget class="QLabel" name="label_4">

@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-ArcaneAtlas ("Arcane Atlas (LCDnD)") is a PySide6 (Qt for Python) desktop app — a digital battle-map / virtual tabletop for in-person tabletop RPGs. The GM lays out maps and assets on a control window, and a separate **Player Window** mirrors a chosen region of that map onto a second screen/TV the players see. Supports static images, animated video maps (`.mp4`/`.webm`), and fog of war with reveal/hide tools.
+ArcaneAtlas ("Arcane Atlas") is a PySide6 (Qt for Python) desktop app — a digital battle-map / virtual tabletop for in-person tabletop RPGs. The GM lays out maps and assets on a control window, and a separate **Player Window** mirrors a chosen region of that map onto a second screen/TV the players see. Supports static images, animated video maps (`.mp4`/`.webm`), and fog of war with reveal/hide tools.
 
 ## Naming
 - Product name and repo: **ArcaneAtlas** (CamelCase, one word)
